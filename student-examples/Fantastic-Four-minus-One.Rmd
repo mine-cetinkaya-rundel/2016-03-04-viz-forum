@@ -1,0 +1,252 @@
+---
+title: "Midterm Project"
+author: "Fantastic Four minus One"
+date: "Friday, October 17, 2014"
+output: html_document
+runtime: shiny
+---
+
+```{r echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+First we load the data and the libraries 
+```{r}
+wc14 <- read.csv("wc14.csv")
+bgs <- read.csv("Bracket-Group+Success.csv")
+suppressWarnings(suppressMessages(library(shiny)))
+suppressWarnings(suppressMessages(library(ggvis)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(devtools)))
+```
+
+###Visualization
+
+Our visualziations concern the relationship between the position a goal was scored from and the type of goal. In the first plot, you can choose whether you want to see the frequency of x positions based on goal type or the frequency of y positions based on goal type. Normal goals had the most variation in both x and y coordinates, and headers had a lot smaller range of y coordinates. This is to be expected because headers cannot be made from very far away. From our knowledge of soccer, penalty kicks should all occur from the same spot. In the visualization, you can see that one of the shots is from a slightly different y-coordinate. This could indicate that there is some error in the data. Free-kicks only have 2 points so you can't analyze them in depth. However, we know that free-kicks most occur outside the penalty box which corresponds with our data, where the two y-coordinates are very high.
+
+```{r}
+plotting1 <- function(xvalue){  #Plots for the first visualization
+  switch(xvalue,
+         X = 
+          qplot(x, data = wc14, geom = "histogram", xlab = "X Position")+
+          facet_wrap(~ ptype),
+         Y = 
+           qplot(y, data = wc14, geom = "histogram", xlab = "Y Position")+
+           facet_wrap(~ ptype))
+  }
+plotting2 <- function(xvalue2){ #Plots for the second visualization
+  switch(xvalue2,
+        G = qplot(x, y, data = wc14, xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0), color = ptype),
+        A = qplot(wc14$x[wc14$ptype == "Free-kick"], wc14$y[wc14$ptype == "Free-kick"], xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0)),
+        B = qplot(wc14$x[wc14$ptype == "goal"], wc14$y[wc14$ptype == "goal"], xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0)),
+        C = qplot(wc14$x[wc14$ptype == "Header"], wc14$y[wc14$ptype == "Header"], xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0)),
+        D = qplot(wc14$x[wc14$ptype == "Own goal"], wc14$y[wc14$ptype == "Own goal"], xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0)),
+        E = qplot(wc14$x[wc14$ptype == "Penalty"], wc14$y[wc14$ptype == "Penalty"], xlab = "X position", ylab = "Y Position", xlim = c(0, 1000), ylim = c(500, 0)))
+}
+```
+
+```{r}
+shinyApp(
+  ui = fluidPage(
+  titlePanel("Kick locations by Type"),
+  
+  sidebarLayout(position = "right",
+    sidebarPanel(
+      radioButtons("radio", label = h4("Select Your X Variable"), #Choosing your x variable (X or Y)
+        choices = list("X", "Y"), selected = "X")),             
+    
+    mainPanel(
+      plotOutput("goalPlot")
+    )
+  )
+),
+
+server = function(input, output) {
+
+     output$goalPlot <- renderPlot({
+        plotting1(input$radio)    #Runs a function that determines which plot to use
+     })
+  },
+ options = list(height = 500)
+)
+
+```
+
+In our next visualization, you the x and y positions are plotted against each other, similar to the visualization given with the assignment. You can choose which goal type to show, allowing easy comparisons between goal types and position. 
+You can see that goals are scored from a variety of positions while headers are more clustered, for example.
+
+```{r}
+shinyApp(
+  ui = fluidPage(
+    titlePanel("Kick locations by Type"),
+    
+    sidebarLayout(position = "right",
+      sidebarPanel(
+        radioButtons("radio2", label = h4("Select the Goal Type"),
+          choices = list("All" = "G", "Free-Kick" = "A", "Goal" = "B", "Header" = "C", "Own Goal" = "D", "Penalty" = "E"), selected = "G")),  #Choose Goal Type
+    
+    mainPanel(
+      plotOutput("goalPlot2")
+    )
+  )
+),
+
+server = function(input, output){
+  
+  output$goalPlot2 <-renderPlot({
+    plotting2(input$radio2)   #Function that chooses the plot based on goal type
+  })
+},
+options = list(height = 500)
+)
+
+
+```
+
+###Inference Question 1
+
+Our first question inference question is, "On average, is the position where the ball enters the goal random between the left and right half of the goal?" We want to see if goals tend to be scored in one half of the goal over the other half. First, we have to divide the goal into equal halves. We designated the left half to be when position in goal is less than or equal to 50. When position in goal is greater than 50, it's the right half of the goal.
+
+```{r}
+wc14$side = c(rep(NA, 193)) #Create a new column in the data frame
+for (i in 1:193){
+  if(wc14$pig[i] < 51){     #Divide pig (0-100) into left half (0-50) and right half (51-100)
+    wc14$side[i] = "left"
+  }
+  if(wc14$pig[i]>50){
+    wc14$side[i] = "right"
+  }
+}
+wc14$side = factor(wc14$side)
+```
+
+Now we want to do a simulation for phat, where phat is the true proportion of goals scored in the left half of the goal. Our null hypothesis is phat = 0.5 and our alternate hypothesis is that phat =/= 0.5. The code for this is taken from App Ex 8.
+
+```{r}
+suppressWarnings(suppressMessages(source_url("https://stat.duke.edu/courses/Fall14/sta112.01/code/one_cat_test.R")))
+Experiment = function(data, null, alternative, success, seed, nSim){
+  set.seed(seed)
+  chips = c("red", "blue")
+  sim_dist = data.frame(p_hat_sim = rep(NA, nSim))
+  for (i in 1:nSim){
+    sim_dist$p_hat_sim[i] = sum(sample(chips, size = length(data), prob = c(null, 1-null), replace = TRUE) == "red") / length(data)
+  }
+  
+  nHypo = paste("The null hypothesis is that p =", null)
+  aHypo = paste("The alternate hypothesis is that p is", alternative, null)
+  sData = summary(data)
+  oSamp = sum(data == success)/length(data)
+  if(alternative == "less than"){
+    p_value = sum(sim_dist$p_hat_sim<=oSamp)/nSim
+  }
+  if(alternative == "greater than"){
+    p_value = sum(sim_dist$p_hat_sim>=oSamp)/nSim
+  }
+  if(alternative == "not equal to"){
+    p_value = 2*min(sum(sim_dist$p_hat_sim<=oSamp), sum(sim_dist$p_hat_sim>=oSamp))/nSim
+  }
+  hist(sim_dist$p_hat_sim, xlab = "p_hat", main = "Frequency of Simulated p_hats")
+  
+  return (list(NullHypothesis = nHypo, AlternativeHypothesis = aHypo, DatasetSummary = sData, ObservedSampleStatistic = oSamp, P_Value = p_value))
+}
+```
+
+```{r}
+Experiment(wc14$side, 0.5, "not equal to", "left", 11, 10000)     #10,000 simulations with seed = 11
+```
+Our p_value, 0.0084, is less than the significance level, 0.05, so there is enough evidence to conclude that the proportion of goals scored on either side is not equal. In other words, goals tend to be scored one one side of the goal over the other side.
+
+There are two ways to interpret this. It could mean that, if shots attempts are taken equally on either side of the goal, goals are scored more often on the left side. That would mean goalies are less proficient at blocking balls coming in from their right. On the other hand, it could mean that more shots are taken on the left side of the goal. If the chance of the ball going in for any given shot is not dependent on side, then we could potentially see that more goals are scored on the left side simply because more attempts are taken on the left side. Unfortunately, we do not know which of the two interpretations are correct without having more data on shot attempts, not only scored goals.
+
+Next, we want to do a confidence interval to find the proportion of goals scored in the left half of the goal. We have to check two conditions, randomness and sample size.
+The random condition is met because each game is a random snapshot of the team's performance over time.
+Goals scored in the left half = np = 115 > 10
+Goals scored in the right half = n(1-p) = 78 > 10
+So the sample size condition is met and we can proceed to create a confidence interval. The test statistic is 1.96 because we are doing an interval with 95% confidence.
+
+```{r}
+prop = length(which(wc14$side == "left"))/length(wc14$side)   #Proportion of lefts in our sample data
+standardError = sqrt(prop*(1-prop)/length(wc14$side))       #Formula for standard error
+confidenceInterval = c(prop-1.96*standardError, prop+1.96*standardError)    #Formula for confidence interval
+confidenceInterval
+```
+So we are 95% confident that the proportion of goals scored in the left half of the goal is between 0.5266 and 0.6651. Note that 0.5 is not contained in this interval, which is consistent with our decision to reject the null hypothesis.
+
+###Inference Question 2
+
+Our second inference question is "Does success in the group stages of the World Cup indicate success in the bracket games?" To do this, we first have a dataset to measure success in the bracket and group stages. The group index is a value assigned by FIFA to each team, where you get 3 points for a win, 1 point for a tie, and 0 points for a loss. Bracket index is a number created by our group, and is equal to the number of wins each team has in the main bracket. The exception to this is the 3rd place team, as there is a game that occurs to determine 3rd and 4th place. The winner of this game received a half point, as opposed to a full point for all other wins.
+
+Here is a plot of the data. With jitter, the dots are displaced too much, but without jitter, you cannot tell how many points are on top of each other. Therefore, you cannot see multiple data points in the same spot without jitter. Neither plot is the best visualization of the data but each one provides different information, so we included both:
+```{r}
+qplot(group_index, bracket_index, data = bgs)  
+qplot(group_index, bracket_index, data = bgs, geom = "jitter")
+```
+  
+Then we create a least-squares regression line for the data and look at the summary.
+```{r}
+btog <- lm(bracket_index ~ group_index, data = bgs)     #Create Linear Regression Line, taken from Lecture 14
+ggplot(btog$model, aes_string(x = names(btog$model)[2], y = names(btog$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") 
+
+summary(btog)
+```
+As you can see, the p-value is 0.000283, which is extremely low. Therefore, the relationship between these two variabiles is statistically significant.
+The equation of the line is ```bracket_index = -0.98760 + 0.31459*group_index.``` This means that for every point a team's group index goes up by, the team's bracket index will go up by 0.31 points. This does not seem like a lot, but the group indices vary from 4 to 9 which is a difference in over 1.5 bracket index points. As each bracket index point represents a win in the bracket, that could mean the difference between 5th and 9th place.
+The y-intercept is -0.98760 which is obviously irrelevant as bracket index cannot be negative. A value of group_index = 0 is too far away from our data range to be considered seriously.
+
+Another thing to note is that the r-squared value is really low, only 0.1929. Even though there is a statistically significant relationship between group index and bracket index, our regression line for group index only explains less than 20% of the variance in bracket index.
+
+Now we need to check the conditions for the regression line.
+
+```{r}
+qplot(btog$fitted, btog$residuals) +  #Taken from lecture 14
+  geom_abline(intercept = 0, slope = 0, lty = 2)
+```
+There seems to be no obvious pattern in the residuals. In addition, there seems to be no fan shapes in this plot so the equal variance condition is met.
+
+
+```{r}
+qplot(btog$residuals, geom = "histogram", binwidth = 0.2)   #Taken from lecture 14
+```
+The histogram of the residuals has a slight right skew, but is normal enough to say that the distribution of the residuals is normal.
+Therefore, it was appropriate to use a linear model in our analysis of the data.
+
+Now we can do a confidence interval on the slope of the line.
+```{r}
+confint(btog, 'group_index', level = 0.95)  #Taken from lecture 14
+```
+So we are 95% confident that the true slope of the regression line is somewhere between 0.151 and 0.478.
+
+Thus, we know that the relationship between group performance and bracket stage performance is statistically significant. This is as expected, because teams that do well in group stages are generally better and are expected to do well in the bracket as well. Since the r-squared is so low, group performance is a weak indicator of bracket performance and should be used in conjunction with other variables in multiple linear regression.  
+
+This could be due to many factors. For example, if a key player on a team gets injured between the group stages and the bracket, then the data for the team's bracket index will change, as our line does not account for events like that. Another reason is that upsets are plausible in soccer because each game has a very low score between the two teams. If team A is better than team B by a mdoerate amount, then it is completely possible for team B to beat team A on a given day, especially with elimination on the line and millions of fans watching. One last example is that teams may not give it their all during group stages and try to conserve their energy and minimalize risk of injury and then try 100% during the bracket stage. This would also skew the data if some teams had this thought process and some did not.
+
+
+We also thought that there was a possiblity of there being a relationship between the x coordinate from which the goal was shot from and the position in the goal where the goal was scored. Therefore, we created a least squares regression line to analyze this data.
+
+```{r}
+m1 <- lm(pig ~ x, data = wc14)      #Taken from lecture 14
+ggplot(m1$model, aes_string(x = names(m1$model)[2], y = names(m1$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") 
+
+summary(m1)
+```
+As you can see, the p-value is 0.93946, so there is no statistically significant relationship between x and position in goal.
+
+This could be because the players can shoot the ball at any angle which means that the x position and the position in goal are not necessarily related.
+This also could be because the player aims the ball in a split second decision. There are many other variabels such as where defenders are positioned on the field and where the goalie is standing in the goal that determines where the player believes he should aim to have the highest chance of scoring the goal.
+
+```
+Sources: http://stackoverflow.com/questions/25633662/create-plots-based-on-radio-button-selection-r-shiny
+http://shiny.rstudio.com/tutorial/lesson3/
+http://rmarkdown.rstudio.com/authoring_embedded_shiny.html
+http://rmarkdown.rstudio.com/authoring_shiny.html
+http://www.soccertimes.com/worldcup/2006/standings.htm
+http://www.newsonf1.com/tickets/2010worldcup/groupstandingstable.htm
+http://www.fifa.com/tournaments/archive/worldcup/koreajapan2002/matches/index.html
+http://www.fifa.com/worldcup/matches/
+```
